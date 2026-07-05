@@ -265,10 +265,22 @@ function chartSpec(name, rows) {
   rows.forEach(r => {
     if (!(r.y in maxShare) || r.s > maxShare[r.y]) maxShare[r.y] = r.s;
   });
-  const values = rows.map(r => ({
-    y: r.y, s: r.s, d: r.d, dec: r.d + "s",
-    key: r.s === maxShare[r.y] ? String(r.d) : ((r.d / 10) % 2 ? "odd" : "even"),
-  }));
+  // explicit stack positions (y0/y1) so the hover-overlay layer can filter
+  // rows without vega restacking them
+  const byYear = {};
+  rows.forEach(r => { (byYear[r.y] ??= []).push(r); });
+  const values = [];
+  for (const y of Object.keys(byYear)) {
+    let cum = 0;
+    for (const r of byYear[y].sort((a, b) => a.d - b.d)) {
+      values.push({
+        y: r.y, s: r.s, d: r.d, dec: r.d + "s",
+        y0: cum, y1: cum + r.s,
+        key: r.s === maxShare[r.y] ? String(r.d) : ((r.d / 10) % 2 ? "odd" : "even"),
+      });
+      cum += r.s;
+    }
+  }
   const labels = computeLabels(rows);
   const textLayer = (a, dx) => ({
     data: { values: labels.filter(l => l.a === a) },
@@ -309,20 +321,20 @@ function chartSpec(name, rows) {
             },
           },
           y: {
-            field: "s", type: "quantitative", stack: true,
+            field: "y0", type: "quantitative",
             scale: { domain: [0, 1] },
             axis: {
               format: "%", values: [0, 0.5, 1], grid: false,
               title: null, labelFontSize: 11.5, labelColor: "#6b6b6b",
             },
           },
-          order: { field: "d" },
+          y2: { field: "y1" },
           color: {
             field: "key", type: "nominal",
             scale: { domain, range }, legend: null,
           },
+          // self-colored strokes hide antialiasing seams between the bars
           stroke: {
-            condition: { param: "hover", empty: false, value: "#333333" },
             field: "key", type: "nominal",
             scale: { domain, range }, legend: null,
           },
@@ -332,6 +344,22 @@ function chartSpec(name, rows) {
             { field: "dec", title: "Born in the" },
             { field: "s", title: "Share", format: ".1%" },
           ],
+        },
+      },
+      {
+        // hovering a band tints that whole cohort slightly darker
+        data: { values },
+        transform: [{ filter: { param: "hover", empty: false } }],
+        mark: { type: "bar" },
+        encoding: {
+          x: { field: "y", type: "ordinal" },
+          y: { field: "y0", type: "quantitative" },
+          y2: { field: "y1" },
+          color: { value: "#1f1f1f" },
+          stroke: { value: "#1f1f1f" },
+          strokeWidth: { value: 1 },
+          fillOpacity: { value: 0.16 },
+          strokeOpacity: { value: 0.16 },
         },
       },
       textLayer("left", 4),
@@ -390,7 +418,7 @@ async function renderMap() {
 }
 
 /* ---------- selection & rendering ---------- */
-let selected = ["DEU", "USA"];
+let selected = ["DEU", "USA", "IND", "NGA", "CHN"];
 
 function toggle(iso3) {
   selected = selected.includes(iso3)
