@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Birth decade explorer</title>
+<script src="lib/vega.min.js"></script>
+<script src="lib/vega-lite.min.js"></script>
+<script src="lib/vega-embed.min.js"></script>
+<style>
+  :root {
+    --ink: #222222;
+    --muted: #6b6b6b;
+    --faint: #9a9a9a;
+    --accent: #e4572e;
+    --paper: #ffffff;
+    --wash: #f4f3f1;
+    --rule: #e3e1de;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink); background: var(--paper);
+    line-height: 1.55; font-size: 17px;
+  }
+  .shell { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
+
+  header { background: var(--wash); border-bottom: 1px solid var(--rule); padding: 44px 0 36px; }
+  .eyebrow {
+    text-transform: uppercase; letter-spacing: 0.16em; font-size: 12px;
+    font-weight: 700; color: var(--accent); margin-bottom: 10px;
+  }
+  h1 { font-size: clamp(30px, 4.5vw, 44px); letter-spacing: -0.02em; font-weight: 800; }
+  .dek { margin-top: 12px; color: var(--muted); max-width: 640px; font-size: 17px; }
+  .dek a { color: var(--accent); text-decoration: none; }
+  .dek a:hover { text-decoration: underline; }
+
+  #status {
+    margin-top: 18px; font-size: 14px; color: var(--muted);
+    display: inline-flex; align-items: center; gap: 10px;
+    background: var(--paper); border: 1px solid var(--rule);
+    border-radius: 999px; padding: 7px 16px;
+  }
+  #status .dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--accent); animation: pulse 1.2s ease-in-out infinite;
+  }
+  #status.ready .dot { animation: none; background: #2f9e44; }
+  @keyframes pulse { 0%,100% { opacity: 0.25 } 50% { opacity: 1 } }
+
+  .controls { display: flex; gap: 36px; align-items: flex-start; flex-wrap: wrap; padding: 30px 0 6px; }
+  .search-col { flex: 1 1 340px; max-width: 460px; }
+  .map-col { flex: 0 1 520px; }
+  .label {
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.12em; color: var(--faint); margin-bottom: 8px;
+  }
+  .searchbox { position: relative; }
+  .searchbox input {
+    width: 100%; font: inherit; font-size: 16px;
+    padding: 11px 16px; border: 1.5px solid var(--rule); border-radius: 10px;
+    outline: none; background: var(--paper);
+  }
+  .searchbox input:focus { border-color: var(--accent); }
+  .searchbox input:disabled { background: var(--wash); }
+  .suggestions {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 20;
+    background: var(--paper); border: 1px solid var(--rule); border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08); overflow: hidden; display: none;
+  }
+  .suggestions button {
+    display: block; width: 100%; text-align: left; font: inherit; font-size: 15.5px;
+    padding: 9px 16px; border: 0; background: none; cursor: pointer; color: var(--ink);
+  }
+  .suggestions button:hover { background: var(--wash); }
+  .suggestions .iso { color: var(--faint); font-size: 12.5px; margin-left: 8px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 14.5px; font-weight: 600;
+    background: var(--ink); color: #fff;
+    border-radius: 999px; padding: 6px 8px 6px 14px;
+  }
+  .chip button {
+    font: inherit; border: 0; cursor: pointer; line-height: 1;
+    width: 20px; height: 20px; border-radius: 50%;
+    background: rgba(255,255,255,0.25); color: #fff; font-size: 12px;
+  }
+  .chip button:hover { background: var(--accent); }
+  .clear-all {
+    font: inherit; font-size: 13.5px; border: 0; background: none;
+    color: var(--faint); cursor: pointer; text-decoration: underline; padding: 6px 2px;
+  }
+  .map-hint { font-size: 13px; color: var(--faint); margin-top: 6px; }
+
+  #charts { padding: 18px 0 80px; }
+  .chart-block { margin-top: 26px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .chart-block > div { min-width: 900px; }
+  .empty {
+    margin-top: 40px; padding: 48px; text-align: center;
+    color: var(--faint); border: 1.5px dashed var(--rule); border-radius: 14px;
+  }
+  footer { padding: 28px 0 60px; color: var(--faint); font-size: 14px; border-top: 1px solid var(--rule); }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="shell">
+    <div class="eyebrow">Data explorer · every country in the UN projections</div>
+    <h1>Which birth decades dominate?</h1>
+    <p class="dek">
+      Pick any countries — by search or by clicking the map — and compare how
+      birth decades rise and fall in their populations from 1950 to 2100.
+      Colored ribbons mark each year's largest birth decade; the same decade
+      keeps its color everywhere, and hovering a band highlights that cohort.
+      All queries run in your browser with DuckDB on the raw parquet file.
+    </p>
+    <div id="status"><span class="dot"></span><span id="status-text">Starting DuckDB …</span></div>
+  </div>
+</header>
+
+<div class="shell">
+  <div class="controls">
+    <div class="search-col">
+      <div class="label">Search countries</div>
+      <div class="searchbox">
+        <input id="search" type="text" placeholder="Loading …" autocomplete="off" disabled>
+        <div class="suggestions" id="suggestions"></div>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="map-col">
+      <div class="label">Or click the map</div>
+      <div id="map"></div>
+      <div class="map-hint"><span style="color:#5b87a5;font-weight:700">blue</span>: data available · <span style="color:var(--accent);font-weight:700">red</span>: selected · pale: no data</div>
+    </div>
+  </div>
+  <div id="charts"></div>
+</div>
+
+<footer>
+  <div class="shell">
+    Data: UN <a href="https://population.un.org/wpp/">World Population Prospects 2024</a>
+    (estimates 1950–2023, medium-variant projections to 2100) ·
+    Queried in-browser with <a href="https://duckdb.org/docs/api/wasm/overview">DuckDB-WASM</a> ·
+    Made by <a href="https://camminady.dev">Thomas Camminady</a>
+  </div>
+</footer>
+
+<script type="module">
+import { duckdb } from "./lib/duckdb/duckdb.bundle.mjs";
+
+const OPTS = { actions: false, renderer: "canvas" };
+const XTICKS = Array.from({ length: 16 }, (_, i) => 1950 + 10 * i);
+const GRAYS = { even: "#bdbdbd", odd: "#e8e8e8" };
+
+const statusText = document.getElementById("status-text");
+const setStatus = (t, ready = false) => {
+  statusText.textContent = t;
+  document.getElementById("status").classList.toggle("ready", ready);
+};
+
+/* ---------- instant metadata: search + map need no database ---------- */
+const meta = await (await fetch("data/meta.json")).json();
+const manifest = meta.countries;
+const colors = meta.colors;
+const byIso = new Map(manifest.map(c => [c.iso3, c]));
+const byMapId = new Map(manifest.map(c => [String(c.id).padStart(3, "0"), c]));
+const domain = Object.keys(colors);
+const range = Object.values(colors);
+
+/* ---------- duckdb boots in the background ---------- */
+// absolute URLs: the wasm is fetched from inside the worker, where relative
+// paths would resolve against the worker's own directory
+const abs = p => new URL(p, window.location.href).href;
+let conn;
+const dbReady = (async () => {
+  setStatus("Starting query engine …");
+  const worker = new Worker(abs("lib/duckdb/duckdb-browser-eh.worker.js"));
+  const db = new duckdb.AsyncDuckDB(
+    new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING), worker
+  );
+  await db.instantiate(abs("lib/duckdb/duckdb-eh.wasm"));
+  conn = await db.connect();
+  try {
+    // HTTP range requests: only the row groups of the countries you select
+    // are actually downloaded (the parquet is sorted by country)
+    await db.registerFileURL(
+      "wpp.parquet", abs("data/wpp.parquet"),
+      duckdb.DuckDBDataProtocol.HTTP, false
+    );
+    await conn.query("SELECT 1 FROM 'wpp.parquet' LIMIT 1");
+  } catch (e) {
+    console.warn("range requests unavailable — downloading parquet fully", e);
+    const buf = new Uint8Array(
+      await (await fetch("data/wpp.parquet")).arrayBuffer()
+    );
+    await db.registerFileBuffer("wpp.parquet", buf);
+  }
+  setStatus(`Ready — ${manifest.length} countries`, true);
+})();
+
+const q = async sql => {
+  await dbReady;
+  return (await conn.query(sql)).toArray().map(r => r.toJSON());
+};
+
+/* ---------- per-country data ---------- */
+const cache = new Map();
+async function countryRows(iso3) {
+  if (!cache.has(iso3)) {
+    const raw = await q(`
+      SELECT Time::INT AS y,
+             (((Time - AgeGrpStart) // 10) * 10)::INT AS d,
+             SUM(PopTotal) AS t
+      FROM 'wpp.parquet'
+      WHERE ISO3_code = '${iso3}'
+      GROUP BY 1, 2 ORDER BY 1, 2
+    `);
+    const totals = {};
+    raw.forEach(r => { totals[r.y] = (totals[r.y] || 0) + r.t; });
+    cache.set(iso3, raw.map(r => ({ y: r.y, d: r.d, s: r.t / totals[r.y] })));
+  }
+  return cache.get(iso3);
+}
+
+/* ---------- diagonal decade labels, computed client-side ---------- */
+function computeLabels(rows) {
+  const years = [...new Set(rows.map(r => r.y))].sort((a, b) => a - b);
+  const first = years[0], last = years[years.length - 1];
+  // stack midpoints per (year, decade), oldest decade at the bottom
+  const byYear = {};
+  rows.forEach(r => { (byYear[r.y] ??= []).push(r); });
+  const ymid = {};
+  for (const y of years) {
+    let cum = 0;
+    for (const r of byYear[y].sort((a, b) => a.d - b.d)) {
+      ymid[`${r.y}_${r.d}`] = cum + r.s / 2;
+      cum += r.s;
+    }
+  }
+  // one label per decade at the middle year of its >= 5% stretch
+  const eligible = {};
+  rows.forEach(r => { if (r.s >= 0.05) (eligible[r.d] ??= []).push(r.y); });
+  return Object.entries(eligible).map(([d, ys]) => {
+    ys.sort((a, b) => a - b);
+    const mid = ys[Math.floor((ys.length - 1) / 2)];
+    return {
+      y: mid,
+      ym: ymid[`${mid}_${d}`],
+      t: d + "s",
+      a: mid === first ? "left" : mid === last ? "right" : "center",
+      c: (d / 10) % 2 ? GRAYS.even : GRAYS.odd,
+    };
+  });
+}
+
+/* ---------- country chart ---------- */
+function chartSpec(name, rows) {
+  const maxShare = {};
+  rows.forEach(r => {
+    if (!(r.y in maxShare) || r.s > maxShare[r.y]) maxShare[r.y] = r.s;
+  });
+  const values = rows.map(r => ({
+    y: r.y, s: r.s, d: r.d, dec: r.d + "s",
+    key: r.s === maxShare[r.y] ? String(r.d) : ((r.d / 10) % 2 ? "odd" : "even"),
+  }));
+  const labels = computeLabels(rows);
+  const textLayer = (a, dx) => ({
+    data: { values: labels.filter(l => l.a === a) },
+    mark: { type: "text", align: a, dx, baseline: "middle", fontSize: 11.5 },
+    encoding: {
+      x: { field: "y", type: "ordinal" },
+      y: { field: "ym", type: "quantitative" },
+      text: { field: "t" },
+      color: { field: "c", type: "nominal", scale: null },
+    },
+  });
+
+  return {
+    $schema: "https://vega.github.io/schema/vega-lite/v6.json",
+    width: 1080, height: 175,
+    title: {
+      text: name, anchor: "start", fontSize: 17, fontWeight: 700,
+      color: "#222222", offset: 10,
+    },
+    layer: [
+      {
+        data: { values },
+        params: [{
+          name: "hover",
+          select: {
+            type: "point", fields: ["d"],
+            on: "pointerover", clear: "pointerout",
+          },
+        }],
+        mark: "bar",
+        encoding: {
+          x: {
+            field: "y", type: "ordinal",
+            scale: { paddingInner: 0, paddingOuter: 0 },
+            axis: {
+              values: XTICKS, labelAngle: 0, labelFlush: true,
+              labelFontSize: 12, grid: false, title: null, labelColor: "#6b6b6b",
+            },
+          },
+          y: {
+            field: "s", type: "quantitative", stack: true,
+            scale: { domain: [0, 1] },
+            axis: {
+              format: "%", values: [0, 0.5, 1], grid: false,
+              title: null, labelFontSize: 11.5, labelColor: "#6b6b6b",
+            },
+          },
+          order: { field: "d" },
+          color: {
+            field: "key", type: "nominal",
+            scale: { domain, range }, legend: null,
+          },
+          stroke: {
+            condition: { param: "hover", empty: false, value: "#333333" },
+            field: "key", type: "nominal",
+            scale: { domain, range }, legend: null,
+          },
+          strokeWidth: { value: 1 },
+          tooltip: [
+            { field: "y", title: "Year" },
+            { field: "dec", title: "Born in the" },
+            { field: "s", title: "Share", format: ".1%" },
+          ],
+        },
+      },
+      textLayer("left", 4),
+      textLayer("center", 0),
+      textLayer("right", -4),
+    ],
+    resolve: { scale: { color: "independent" } },
+    config: { view: { stroke: null } },
+  };
+}
+
+/* ---------- world map ---------- */
+function mapSpec() {
+  const states = manifest.map(c => ({
+    id: String(c.id).padStart(3, "0"),
+    name: c.name,
+    state: selected.includes(c.iso3) ? "selected" : "available",
+  }));
+  return {
+    $schema: "https://vega.github.io/schema/vega-lite/v6.json",
+    width: 500, height: 260,
+    projection: { type: "equalEarth" },
+    data: {
+      url: "lib/countries-50m.json",
+      format: { type: "topojson", feature: "countries" },
+    },
+    transform: [
+      {
+        lookup: "id",
+        from: { data: { values: states }, key: "id", fields: ["state", "name"] },
+      },
+      { calculate: "datum.state || 'none'", as: "state2" },
+    ],
+    mark: { type: "geoshape", stroke: "white", strokeWidth: 0.5, cursor: "pointer" },
+    encoding: {
+      color: {
+        field: "state2", type: "nominal", legend: null,
+        scale: {
+          domain: ["none", "available", "selected"],
+          range: ["#e8e6e2", "#7fa3bd", "#e4572e"],
+        },
+      },
+      tooltip: [{ field: "name", title: "Country" }],
+    },
+    config: { view: { stroke: null } },
+  };
+}
+
+async function renderMap() {
+  const res = await vegaEmbed("#map", mapSpec(), OPTS);
+  res.view.addEventListener("click", (event, item) => {
+    if (!item || !item.datum || !item.datum.id) return;
+    const c = byMapId.get(String(item.datum.id));
+    if (c) toggle(c.iso3);
+  });
+}
+
+/* ---------- selection & rendering ---------- */
+let selected = ["DEU", "USA"];
+
+function toggle(iso3) {
+  selected = selected.includes(iso3)
+    ? selected.filter(s => s !== iso3)
+    : [...selected, iso3];
+  renderAll();
+}
+
+function renderChips() {
+  const el = document.getElementById("chips");
+  el.innerHTML = "";
+  for (const iso3 of selected) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.textContent = byIso.get(iso3).name + " ";
+    const x = document.createElement("button");
+    x.textContent = "✕";
+    x.title = "Remove";
+    x.addEventListener("click", () => toggle(iso3));
+    chip.appendChild(x);
+    el.appendChild(chip);
+  }
+  if (selected.length > 1) {
+    const clear = document.createElement("button");
+    clear.className = "clear-all";
+    clear.textContent = "clear all";
+    clear.addEventListener("click", () => { selected = []; renderAll(); });
+    el.appendChild(clear);
+  }
+}
+
+async function renderCharts() {
+  const el = document.getElementById("charts");
+  el.innerHTML = "";
+  if (!selected.length) {
+    el.innerHTML = '<div class="empty">No countries selected — search above or click the map.</div>';
+    return;
+  }
+  for (const iso3 of selected) {
+    const block = document.createElement("div");
+    block.className = "chart-block";
+    const inner = document.createElement("div");
+    inner.textContent = "Loading " + byIso.get(iso3).name + " …";
+    inner.style.color = "var(--faint)";
+    block.appendChild(inner);
+    el.appendChild(block);
+    const rows = await countryRows(iso3);
+    inner.textContent = ""; inner.style.color = "";
+    await vegaEmbed(inner, chartSpec(byIso.get(iso3).name, rows), OPTS);
+  }
+}
+
+function renderAll() {
+  renderChips();
+  renderCharts();
+  renderMap();
+}
+
+/* ---------- search ---------- */
+const input = document.getElementById("search");
+const sug = document.getElementById("suggestions");
+input.disabled = false;
+input.placeholder = "Type a country name …";
+function hideSug() { sug.style.display = "none"; sug.innerHTML = ""; }
+input.addEventListener("input", () => {
+  const query = input.value.trim().toLowerCase();
+  hideSug();
+  if (!query) return;
+  const hits = manifest
+    .filter(c => c.name.toLowerCase().includes(query))
+    .slice(0, 9);
+  if (!hits.length) return;
+  for (const c of hits) {
+    const b = document.createElement("button");
+    b.innerHTML = c.name + '<span class="iso">' + c.iso3 + "</span>";
+    b.addEventListener("click", () => {
+      if (!selected.includes(c.iso3)) toggle(c.iso3);
+      input.value = ""; hideSug(); input.focus();
+    });
+    sug.appendChild(b);
+  }
+  sug.style.display = "block";
+});
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter") { const b = sug.querySelector("button"); if (b) b.click(); }
+  if (e.key === "Escape") hideSug();
+});
+document.addEventListener("click", e => {
+  if (!e.target.closest(".searchbox")) hideSug();
+});
+
+renderAll();
+</script>
+
+</body>
+</html>
